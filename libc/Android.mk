@@ -447,6 +447,7 @@ libc_arch_dynamic_src_files := \
 ifeq ($(ARCH_ARM_HAVE_ARMV7A),true)
 libc_common_src_files += \
 	arch-arm/bionic/armv7/memchr.S \
+	arch-arm/bionic/armv7/memcpy.S \
 	arch-arm/bionic/armv7/memset.S \
     arch-arm/bionic/armv7/bzero.S \
 	arch-arm/bionic/armv7/strchr.S \
@@ -455,6 +456,7 @@ libc_common_src_files += \
 else
 libc_common_src_files += \
 	string/memchr.c \
+	arch-arm/bionic/memcpy.S \
 	arch-arm/bionic/memset.S \
 	string/strchr.c \
 	arch-arm/bionic/strcpy.S \
