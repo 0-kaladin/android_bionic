@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 ARM Ltd
+ * Copyright (c) 2013 ARM Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,10 +26,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <machine/cpu-features.h>
-#include <machine/asm.h>
-
-	/* Prototype: void *memcpy (void *dst, const void *src, size_t count).  */
+    /* Prototype: void *memcpy (void *dst, const void *src, size_t count).  */
 
         /* Use the version of memcpy implemented using LDRD and STRD.
            This version is tuned for Cortex-A15.
@@ -41,21 +38,17 @@
            Therefore, we use this version for all ARMv7-A CPUS.  */
 
         /* To make the same code compile for both ARM and Thumb instruction
-	   sets, switch to unified syntax at the beginning of this function.
+       sets, switch to unified syntax at the beginning of this function.
            However, by using the same code, we may be missing optimization
-	   opportunities.  For instance, in LDRD/STRD instructions, the first
-	   destination register must be even and the second consecutive in
-	   ARM state, but not in Thumb state.  */
+       opportunities.  For instance, in LDRD/STRD instructions, the first
+       destination register must be even and the second consecutive in
+       ARM state, but not in Thumb state.  */
+
+#include <machine/cpu-features.h>
+#include <machine/asm.h>
 
         .syntax         unified
 
-#if defined (__thumb__)
-        .thumb
-        .thumb_func
-#endif
-
-        .global memcpy
-        .type   memcpy, %function
 ENTRY(memcpy)
 
        /* Assumes that n >= 0, and dst, src are valid pointers.
@@ -66,18 +59,22 @@ ENTRY(memcpy)
           When less than 8 left, copy a word and then byte by byte.  */
 
        /* Save registers (r0 holds the return value):
-          optimized push {r0, r4, r5, lr}.
+          optimized push {r0, r4, r5, r6, r7, lr}.
           To try and improve performance, stack layout changed,
           i.e., not keeping the stack looking like users expect
           (highest numbered register at highest address).  */
-        push {r0, lr}
-        strd r4, r5, [sp, #-8]!
+        .save   {r0, lr}
+        push    {r0, lr}
+        .save   {r4, r5}
+        strd    r4, r5, [sp, #-8]!
+        .save   {r6, r7}
+        strd    r6, r7, [sp, #-8]!
 
        /* TODO: Add debug frame directives.
           We don't need exception unwind directives, because the code below
-	  does not throw any exceptions and does not call any other functions.
+      does not throw any exceptions and does not call any other functions.
           Generally, newlib functions like this lack debug information for
-	  assembler source.  */
+      assembler source.  */
 
         /* Get copying of tiny blocks out of the way first.  */
         /* Is there at least 4 bytes to copy?  */
@@ -191,20 +188,22 @@ copy_less_than_4:
         strbcs  r5, [r0]
 
 return:
-        /* Restore registers: optimized pop {r0, r4, r5, pc}   */
+        /* Restore registers: optimized pop {r0, r4, r5, r6, r7, pc}   */
+        /* This is the only return point of memcpy.  */
+        ldrd r6, r7, [sp], #8
         ldrd r4, r5, [sp], #8
-        pop {r0, pc}           /* This is the only return point of memcpy.  */
+        pop {r0, pc}
 
 #ifndef __ARM_FEATURE_UNALIGNED
 
        /* The following assembly macro implements misaligned copy in software.
           Assumes that dst is word aligned, src is at offset "pull" bits from
-	  word, push = 32 - pull, and the number of bytes that remain to copy
-	  is r2 + 4, r2 >= 0.  */
+      word, push = 32 - pull, and the number of bytes that remain to copy
+      is r2 + 4, r2 >= 0.  */
 
        /* In the code below, r2 is the number of bytes that remain to be
-	  written.  The number of bytes read is always larger, because we have
-	  partial words in the shift queue.  */
+      written.  The number of bytes read is always larger, because we have
+      partial words in the shift queue.  */
 
         .macro  miscopy pull push shiftleft shiftright
 
@@ -219,12 +218,6 @@ return:
 
        /* Get here if there is more than 8 bytes to copy.
           The number of bytes to copy is r2+8, r2 >= 0.  */
-
-       /* Save registers: push { r6, r7 }.
-          We need additional registers for LDRD and STRD, because in ARM state
-          the first destination register must be even and the second
-	  consecutive.  */
-       strd     r6, r7, [sp, #-8]!
 
        subs     r2, r2, #56
        blt      4f         /* Go to misaligned copy of less than 64 bytes.  */
@@ -251,15 +244,11 @@ return:
 
 4:
        /* Get here if there is less than 64 bytes to copy (-64 <= r2 < 0)
-	  and they are misaligned.  */
+      and they are misaligned.  */
 
        /* Restore the count if there is more than 7 bytes to copy.  */
         adds    r2, r2, #56
 
-       /* If less than 8 bytes to copy,
-          restore registers saved for this loop: optimized poplt { r6, r7 }. */
-        itt     lt
-        ldrdlt  r6, r7, [sp], #8
         blt     6f          /* Go to misaligned copy of less than 8 bytes.  */
 
 5:
@@ -274,9 +263,6 @@ return:
 
         subs    r2, r2, #8
         bge     5b                        /* If there is more to copy.  */
-
-        /* Restore registers saved for this loop: optimized pop { r6, r7 }.  */
-        ldrd    r6, r7, [sp], #8
 
 6:
         /* Get here if there less than 8 bytes to copy (-8 <= r2 < 0)
@@ -321,11 +307,11 @@ dst_not_word_aligned:
           The number of bytes that remains to copy is r2 + 4,
           i.e., there are at least 4 bytes to copy.
           Write a partial word (0 to 3 bytes), such that dst becomes
-	  word-aligned.  */
+      word-aligned.  */
 
        /* If dst is at ip bytes offset from a word (with 0 < ip < 4),
           then there are (4 - ip) bytes to fill up to align dst to the next
-	  word.  */
+      word.  */
         rsb     ip, ip, #4                        /* ip = #4 - ip.  */
         cmp     ip, #2
 
@@ -348,9 +334,9 @@ dst_not_word_aligned:
 
        /* Get here if there are more than 4 bytes to copy.
           Check if src is aligned.  If beforehand src and dst were not word
-	  aligned but congruent (same offset), then now they are both
-	  word-aligned, and we can copy the rest efficiently (without
-	  shifting).  */
+      aligned but congruent (same offset), then now they are both
+      word-aligned, and we can copy the rest efficiently (without
+      shifting).  */
         ands    ip, r1, #3                    /* ip = last 2 bits of src.  */
         beq     word_aligned                  /* If r1 is word-aligned.  */
 
@@ -382,7 +368,7 @@ src_not_word_aligned:
         adds    r2, r2, #60
         blt     copy_less_than_4
 
-9:      
+9:
        /* Get here if there is less than 64 but at least 4 bytes to copy,
           where the number of bytes to copy is r2+4.  */
         ldr     r3, [r1], #4
@@ -416,4 +402,5 @@ miscopy_24_8:   miscopy pull=24 push=8 shiftleft=lsl shiftright=lsr
 #endif  /* not __ARMEB__ */
 
 #endif  /* not __ARM_FEATURE_UNALIGNED  */
+
 END(memcpy)
