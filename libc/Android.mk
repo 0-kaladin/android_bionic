@@ -397,9 +397,6 @@ endif
 # We have a special memcpy for A15 currently
 ifeq ($(TARGET_ARCH_VARIANT_CPU),cortex-a15)
 libc_common_src_files += arch-arm/bionic/memcpy-a15.S
-  ifeq ($(TARGET_ARCH_VARIANT_CPU),cortex-a9)
-  libc_common_src_files += arch-arm/bionic/memcpy-a9.S
-  endif
 else
 libc_common_src_files += arch-arm/bionic/memcpy.S
 endif
